@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-900 text-slate-100">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FAST Timetable & Custom Schedule Designer</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- SheetJS for XLSX Parsing -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <!-- html2canvas for Exporting Timetable -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+  <style>
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+  </style>
+</head>
+<body class="h-full flex flex-col font-sans antialiased selection:bg-indigo-500 selection:text-white">
+
+  <!-- Header / Navigation Bar -->
+  <header class="bg-slate-800/80 backdrop-blur border-b border-slate-700/60 sticky top-0 z-50 px-6 py-3.5 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-indigo-500/20">
+        <i class="fa-solid fa-calendar-days"></i>
+      </div>
+      <div>
+        <h1 class="text-base font-bold text-slate-100 tracking-wide flex items-center gap-2">
+          Timetable Studio <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">FAST Edition</span>
+        </h1>
+        <p class="text-xs text-slate-400">Custom course selection & clash-free schedule builder</p>
+      </div>
+    </div>
+
+    <!-- Quick Stats Header Bar -->
+    <div class="flex items-center gap-4 text-xs font-medium">
+      <div class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/60 border border-slate-700/50">
+        <span class="text-slate-400">Total Credits:</span>
+        <span id="creditCounter" class="text-indigo-400 font-bold">0 CH</span>
+      </div>
+      <div class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/60 border border-slate-700/50">
+        <span class="text-slate-400">Selected Courses:</span>
+        <span id="selectedCount" class="text-emerald-400 font-bold">0</span>
+      </div>
+      <button id="exportBtn" onclick="exportTimetableImage()" class="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white px-3.5 py-1.5 rounded-lg font-semibold transition-all shadow-md shadow-indigo-600/20 active:scale-95">
+        <i class="fa-solid fa-download"></i> Export Image
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Content Layout -->
+  <div class="flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-hidden">
+
+    <!-- Left Control Panel (Upload, Department Selector, Course List) -->
+    <aside class="lg:col-span-4 bg-slate-800/40 border-r border-slate-700/60 flex flex-col h-full overflow-hidden">
+      
+      <!-- Upload Dropzone -->
+      <div class="p-4 border-b border-slate-700/60 bg-slate-800/30">
+        <label for="fileUpload" class="group relative flex flex-col items-center justify-center border-2 border-dashed border-slate-600/80 hover:border-indigo-500 rounded-xl p-4 cursor-pointer bg-slate-900/40 hover:bg-slate-900/80 transition-all duration-200">
+          <i class="fa-solid fa-file-excel text-2xl text-emerald-400 mb-2 group-hover:scale-110 transition-transform"></i>
+          <span class="text-xs font-semibold text-slate-200">Upload FSC Timetable File (.xlsx / .csv)</span>
+          <span id="fileName" class="text-[11px] text-slate-400 mt-1">Supports multi-sheet FAST schedules</span>
+          <input id="fileUpload" type="file" accept=".xlsx, .xls, .csv" class="hidden" onchange="handleFileUpload(event)" />
+        </label>
+      </div>
+
+      <!-- Filters & Search Bar -->
+      <div class="p-4 border-b border-slate-700/60 space-y-3">
+        <!-- Sheet / Department Filter -->
+        <div class="flex items-center gap-2">
+          <label class="text-xs font-semibold text-slate-400 whitespace-nowrap">Sheet:</label>
+          <select id="sheetSelect" onchange="filterCourses()" class="w-full bg-slate-900 text-xs text-slate-200 border border-slate-700 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500">
+            <option value="ALL">All Departments</option>
+          </select>
+        </div>
+
+        <!-- Search Input -->
+        <div class="relative">
+          <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-xs text-slate-500"></i>
+          <input id="searchInput" type="text" oninput="filterCourses()" placeholder="Search course code, title, section, or teacher..." class="w-full bg-slate-900 text-xs text-slate-200 pl-8 pr-3 py-2 rounded-lg border border-slate-700 focus:outline-none focus:border-indigo-500 placeholder-slate-500" />
+        </div>
+      </div>
+
+      <!-- Course & Section List Container -->
+      <div class="flex-1 overflow-y-auto p-4 space-y-3" id="courseListContainer">
+        <div class="text-center py-12 text-slate-500 text-xs flex flex-col items-center gap-2">
+          <i class="fa-solid fa-folder-open text-3xl opacity-40"></i>
+          <span>Please upload your timetable Excel file to select courses.</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Right Panel: Timetable Canvas & Clash Detector -->
+    <main class="lg:col-span-8 flex flex-col h-full bg-slate-900 overflow-hidden">
+      
+      <!-- Clash Warning Banner -->
+      <div id="clashBanner" class="hidden bg-rose-500/10 border-b border-rose-500/30 px-4 py-2.5 flex items-center justify-between text-xs text-rose-300">
+        <div class="flex items-center gap-2 font-medium">
+          <i class="fa-solid fa-triangle-exclamation text-rose-400 text-sm"></i>
+          <span id="clashText">Time conflict detected between selected sections!</span>
+        </div>
+      </div>
+
+      <!-- Timetable Render Container -->
+      <div class="flex-1 overflow-auto p-4" id="timetableExportArea">
+        <div class="bg-slate-800/50 rounded-xl border border-slate-700/60 p-4 min-w-[700px]">
+          
+          <!-- Timetable Grid Header -->
+          <div class="grid grid-cols-7 gap-2 mb-3 text-center text-xs font-semibold text-slate-400 border-b border-slate-700/60 pb-2">
+            <div class="text-left pl-2">Time Slot</div>
+            <div>Mon</div>
+            <div>Tue</div>
+            <div>Wed</div>
+            <div>Thu</div>
+            <div>Fri</div>
+            <div>Sat</div>
+          </div>
+
+          <!-- Time Grid Body -->
+          <div id="timetableGrid" class="space-y-2 text-xs">
+            <!-- Dynamically populated by JS -->
+          </div>
+        </div>
+      </div>
+    </main>
+
+  </div>
+
+  <script>
+    let masterData = []; // All extracted sections
+    let selectedSectionKeys = new Set(); // Stores chosen section unique keys
+    const timeSlots = ["08:30", "10:00", "11:30", "13:00", "14:30", "16:00", "17:30"];
+    const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+    // Color palette generator for selected courses
+    const colorPalette = [
+      { bg: "bg-indigo-900/60", border: "border-indigo-500/50", text: "text-indigo-200" },
+      { bg: "bg-emerald-900/60", border: "border-emerald-500/50", text: "text-emerald-200" },
+      { bg: "bg-purple-900/60", border: "border-purple-500/50", text: "text-purple-200" },
+      { bg: "bg-amber-900/60", border: "border-amber-500/50", text: "text-amber-200" },
+      { bg: "bg-cyan-900/60", border: "border-cyan-500/50", text: "text-cyan-200" },
+      { bg: "bg-rose-900/60", border: "border-rose-500/50", text: "text-rose-200" }
+    ];
+
+    function handleFileUpload(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      document.getElementById('fileName').innerText = file.name;
+      const reader = new FileReader();
+
+      reader.onload = function(evt) {
+        const data = new Uint8Array(evt.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        
+        masterData = [];
+        const sheetSelect = document.getElementById('sheetSelect');
+        sheetSelect.innerHTML = '<option value="ALL">All Departments</option>';
+
+        workbook.SheetNames.forEach(sheetName => {
+          const sheet = workbook.Sheets[sheetName];
+          const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+          
+          if (rows.length < 2) return;
+
+          // Populate sheet dropdown
+          const opt = document.createElement('option');
+          opt.value = sheetName;
+          opt.innerText = sheetName;
+          sheetSelect.appendChild(opt);
+
+          // Find header row dynamically
+          let headerIdx = 0;
+          for (let i = 0; i < Math.min(5, rows.length); i++) {
+            if (rows[i] && rows[i].some(cell => String(cell).includes('Course Title') || String(cell).includes('Code'))) {
+              headerIdx = i;
+              break;
+            }
+          }
+
+          const headers = rows[headerIdx].map(h => String(h || '').trim());
+          const codeIdx = headers.findIndex(h => h.toLowerCase().includes('code'));
+          const titleIdx = headers.findIndex(h => h.toLowerCase().includes('course title'));
+          const secIdx = headers.findIndex(h => h.toLowerCase().includes('section'));
+          const instIdx = headers.findIndex(h => h.toLowerCase().includes('instructor name'));
+          const chIdx = headers.findIndex(h => h.toLowerCase().includes('credit hours'));
+          const d1Idx = headers.findIndex(h => h.toLowerCase() === 'day 1');
+          const s1Idx = headers.findIndex(h => h.toLowerCase() === 'slot 1');
+          const v1Idx = headers.findIndex(h => h.toLowerCase() === 'venue 1');
+          const d2Idx = headers.findIndex(h => h.toLowerCase() === 'day 2');
+          const s2Idx = headers.findIndex(h => h.toLowerCase() === 'slot 2');
+          const v2Idx = headers.findIndex(h => h.toLowerCase() === 'venue 2');
+
+          for (let r = headerIdx + 1; r < rows.length; r++) {
+            const row = rows[r];
+            if (!row || row.length === 0) continue;
+
+            const title = row[titleIdx] ? String(row[titleIdx]).trim() : '';
+            const code = row[codeIdx] ? String(row[codeIdx]).trim() : '';
+            const section = row[secIdx] ? String(row[secIdx]).trim() : '';
+            if (!title || !section) continue;
+
+            const itemKey = `${sheetName}_${code}_${title}_${section}_${r}`;
+            
+            const sessions = [];
+            if (row[d1Idx] && row[s1Idx]) {
+              sessions.push({ day: String(row[d1Idx]).trim(), slot: String(row[s1Idx]).trim(), venue: row[v1Idx] || '' });
+            }
+            if (row[d2Idx] && row[s2Idx]) {
+              sessions.push({ day: String(row[d2Idx]).trim(), slot: String(row[s2Idx]).trim(), venue: row[v2Idx] || '' });
+            }
+
+            masterData.push({
+              key: itemKey,
+              sheet: sheetName,
+              code: code,
+              title: title,
+              section: section,
+              instructor: row[instIdx] ? String(row[instIdx]).trim() : 'N/A',
+              creditHours: parseInt(row[chIdx]) || 3,
+              sessions: sessions
+            });
+          }
+        });
+
+        filterCourses();
+        renderTimetable();
+      };
+
+      reader.readAsArrayBuffer(file);
+    }
+
+    function filterCourses() {
+      const selectedSheet = document.getElementById('sheetSelect').value;
+      const searchVal = document.getElementById('searchInput').value.toLowerCase();
+      const container = document.getElementById('courseListContainer');
+      container.innerHTML = '';
+
+      const filtered = masterData.filter(item => {
+        const matchesSheet = selectedSheet === 'ALL' || item.sheet === selectedSheet;
+        const matchesSearch = item.title.toLowerCase().includes(searchVal) ||
+                              item.code.toLowerCase().includes(searchVal) ||
+                              item.section.toLowerCase().includes(searchVal) ||
+                              item.instructor.toLowerCase().includes(searchVal);
+        return matchesSheet && matchesSearch;
+      });
+
+      if (filtered.length === 0) {
+        container.innerHTML = '<div class="text-center py-8 text-slate-500 text-xs">No matching courses found.</div>';
+        return;
+      }
+
+      // Group courses by Course Title
+      const grouped = {};
+      filtered.forEach(item => {
+        if (!grouped[item.title]) grouped[item.title] = [];
+        grouped[item.title].push(item);
+      });
+
+      for (const [title, sections] of Object.entries(grouped)) {
+        const courseCard = document.createElement('div');
+        courseCard.className = "bg-slate-800/80 rounded-xl border border-slate-700/60 p-3 space-y-2";
+        
+        const codeSpan = sections[0].code ? `<span class="text-indigo-400 font-mono text-[10px] bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20 mr-1.5">${sections[0].code}</span>` : '';
+        
+        let sectionsHTML = sections.map(sec => {
+          const isChecked = selectedSectionKeys.has(sec.key);
+          const sessionsText = sec.sessions.map(s => `${s.day} @ ${s.slot} (${s.venue})`).join(', ') || 'No slot assigned';
+
+          return `
+            <label class="flex items-start gap-2.5 p-2 rounded-lg bg-slate-900/50 hover:bg-slate-900 border border-slate-700/40 cursor-pointer transition-colors text-xs">
+              <input type="checkbox" data-key="${sec.key}" ${isChecked ? 'checked' : ''} onchange="toggleSection('${sec.key}')" class="mt-0.5 rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-indigo-500/40">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between font-medium text-slate-200">
+                  <span>Section: <strong class="text-indigo-300">${sec.section}</strong></span>
+                  <span class="text-[10px] text-slate-400">${sec.instructor}</span>
+                </div>
+                <div class="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1">
+                  <i class="fa-regular fa-clock text-slate-500"></i> ${sessionsText}
+                </div>
+              </div>
+            </label>
+          `;
+        }).join('');
+
+        courseCard.innerHTML = `
+          <div class="font-semibold text-xs text-slate-200 border-b border-slate-700/50 pb-1.5 flex items-center justify-between">
+            <span class="truncate">${codeSpan}${title}</span>
+            <span class="text-[10px] text-slate-400 font-normal ml-2">${sections[0].creditHours} CH</span>
+          </div>
+          <div class="space-y-1.5">${sectionsHTML}</div>
+        `;
+
+        container.appendChild(courseCard);
+      }
+    }
+
+    function toggleSection(key) {
+      if (selectedSectionKeys.has(key)) {
+        selectedSectionKeys.delete(key);
+      } else {
+        selectedSectionKeys.add(key);
+      }
+      renderTimetable();
+    }
+
+    function renderTimetable() {
+      const grid = document.getElementById('timetableGrid');
+      grid.innerHTML = '';
+
+      const selectedItems = masterData.filter(d => selectedSectionKeys.has(d.key));
+      
+      // Update stats
+      let totalCH = 0;
+      selectedItems.forEach(i => totalCH += i.creditHours);
+      document.getElementById('creditCounter').innerText = `${totalCH} CH`;
+      document.getElementById('selectedCount').innerText = selectedItems.length;
+
+      // Color mapping for selected courses
+      const courseColorMap = {};
+      selectedItems.forEach((item, idx) => {
+        courseColorMap[item.title] = colorPalette[idx % colorPalette.length];
+      });
+
+      let hasClash = false;
+
+      // Render each time slot row
+      timeSlots.forEach(slot => {
+        const row = document.createElement('div');
+        row.className = "grid grid-cols-7 gap-2 items-stretch min-h-[60px]";
+
+        // Time slot label
+        const timeLabel = document.createElement('div');
+        timeLabel.className = "flex items-center justify-start pl-2 font-mono text-[11px] text-slate-400 font-medium bg-slate-900/40 rounded-lg border border-slate-800";
+        timeLabel.innerText = slot;
+        row.appendChild(timeLabel);
+
+        // Days
+        weekDays.forEach(day => {
+          const cell = document.createElement('div');
+          cell.className = "bg-slate-900/50 rounded-lg border border-slate-800 p-1 flex flex-col gap-1 min-h-[60px]";
+
+          // Find classes in this day & slot
+          const matches = [];
+          selectedItems.forEach(item => {
+            item.sessions.forEach(sess => {
+              if (sess.day.toLowerCase() === day.toLowerCase() && sess.slot.includes(slot)) {
+                matches.push({ ...item, venue: sess.venue });
+              }
+            });
+          });
+
+          if (matches.length === 1) {
+            const m = matches[0];
+            const palette = courseColorMap[m.title] || colorPalette[0];
+            cell.innerHTML = `
+              <div class="h-full p-1.5 rounded-md ${palette.bg} ${palette.border} border flex flex-col justify-between text-[11px]">
+                <div class="font-bold ${palette.text} leading-tight truncate" title="${m.title}">${m.code || m.title}</div>
+                <div class="text-[10px] text-slate-300 flex justify-between items-center mt-1">
+                  <span class="font-semibold">${m.section}</span>
+                  <span class="text-slate-400 font-mono text-[9px] bg-slate-950/40 px-1 rounded">${m.venue}</span>
+                </div>
+              </div>
+            `;
+          } else if (matches.length > 1) {
+            hasClash = true;
+            cell.className += " border-rose-500/50 bg-rose-950/20";
+            cell.innerHTML = matches.map(m => `
+              <div class="p-1 rounded bg-rose-900/80 border border-rose-500/60 text-[10px] text-rose-100 font-semibold">
+                ⚠️ ${m.code || m.title} (${m.section})
+              </div>
+            `).join('');
+          }
+
+          row.appendChild(cell);
+        });
+
+        grid.appendChild(row);
+      });
+
+      // Show / Hide Clash Banner
+      const clashBanner = document.getElementById('clashBanner');
+      if (hasClash) {
+        clashBanner.classList.remove('hidden');
+      } else {
+        clashBanner.classList.add('hidden');
+      }
+    }
+
+    function exportTimetableImage() {
+      const exportArea = document.getElementById('timetableExportArea');
+      html2canvas(exportArea, {
+        backgroundColor: '#0f172a',
+        scale: 2
+      }).then(canvas => {
+        const link = document.createElement('a');
+        link.download = 'My_Custom_Timetable.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      });
+    }
+
+    // Initialize Empty Timetable Grid on Load
+    renderTimetable();
+  </script>
+</body>
+</html>
